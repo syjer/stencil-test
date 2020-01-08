@@ -20,6 +20,7 @@ Modify the following files:
 And run
 
 ```
+rm package-lock.json
 npm install
 npm start
 ```
@@ -80,9 +81,6 @@ We clone the templates:
 cd .. #go back in the main directory
 git clone https://github.com/ionic-team/stencil-ds-angular-template.git component-library-angular
 git clone https://github.com/ionic-team/stencil-ds-react-template.git component-library-react
-cd component-library-angular
-cd ../component-library-react
-cd ..
 ```
 
 In theory, all the project names and dependencies should be aligned to `component-library`
@@ -300,3 +298,283 @@ npm start
 ```
 
 And enjoy!
+
+## Adding a new component
+
+In this section we will explore what entails adding a new "input type" component
+as it has some non trivial integration issues with Angular.
+
+Go to `component-library`.
+
+Run:
+
+```
+npx stencil generate my-custom-input
+```
+
+Press enter.
+
+It will create a directory src/components/custom-input.
+
+Now, modify the custom-input.tsx file as the following:
+
+```
+import { Component, Event, h, Prop, EventEmitter } from '@stencil/core';
+
+@Component({
+  tag: 'my-custom-input',
+  styleUrl: 'custom-input.css',
+  shadow: true
+})
+export class CustomInput {
+
+  @Prop({ mutable: true }) value?: string | null = "";
+
+  @Event()
+  myChange: EventEmitter;
+
+  changeOccurred = (e: Event) => {
+    this.value = (e.currentTarget as HTMLInputElement).value;
+    this.myChange.emit(this.value);
+  };
+
+  render() {
+    return (
+      <div>
+        <label>My Custom Input</label>
+        <input type="text" value={this.value} onChange={this.changeOccurred}></input>
+      </div>
+    );
+  }
+
+}
+```
+
+and add the tag:
+
+```
+<my-custom-input value="Hello world!"></my-custom-input>
+```
+
+in src/index.html.
+
+run
+
+```
+npm start
+```
+
+and check that your custom input is available.
+
+Now build again:
+
+```
+npm run build
+npm pack
+```
+
+### Updating the angular binding
+
+Go to the component-library-angular directory and install our newly packed component library:
+
+```
+cd ..
+cd component-library-angular
+npm install ../component-library/component-library-0.0.1.tgz
+```
+
+As you can see the `src/directives/proxies.ts` file is now updated with our new component!
+
+The next step will be to integrate our `my-custom-input` element with the ngModel/reactive form machinery of Angular.
+
+For this we need to write a custom `ControlValueAccessor` (see https://github.com/ionic-team/stencil-ds-plugins-demo/blob/master/packages/component-library-angular/src/directives/value-accessor.ts)
+
+Add a new file: `src/directives/value-accessor.ts` with the following content:
+
+```
+import { ElementRef, HostListener } from '@angular/core';
+import { ControlValueAccessor } from '@angular/forms';
+
+export class ValueAccessor implements ControlValueAccessor {
+
+  private onChange: (value: any) => void = () => {/**/};
+  private onTouched: () => void = () => {/**/};
+  protected lastValue: any;
+
+  constructor(protected el: ElementRef) {}
+
+  writeValue(value: any) {
+    this.el.nativeElement.value = this.lastValue = value == null ? '' : value;
+  }
+
+  handleChangeEvent(value: any) {
+    if (value !== this.lastValue) {
+      this.lastValue = value;
+      this.onChange(value);
+    }
+  }
+
+  @HostListener('focusout')
+  _handleBlurEvent() {
+    this.onTouched();
+  }
+
+  registerOnChange(fn: (value: any) => void) {
+    this.onChange = fn;
+  }
+  registerOnTouched(fn: () => void) {
+    this.onTouched = fn;
+  }
+}
+```
+
+And for the concrete "binding" to our component, add a new file `src/directives/my-custom-input-value-accessor.ts` with the following content:
+
+```
+import { Directive, ElementRef } from '@angular/core';
+import { NG_VALUE_ACCESSOR } from '@angular/forms';
+
+import { ValueAccessor } from './value-accessor';
+
+@Directive({
+  /* tslint:disable-next-line:directive-selector */
+  selector: 'my-custom-input',
+  host: {
+    '(myChange)': 'handleChangeEvent($event.target.value)'
+  },
+  providers: [
+    {
+      provide: NG_VALUE_ACCESSOR,
+      useExisting: MyCustomInputValueAccessor,
+      multi: true
+    }
+  ]
+})
+export class MyCustomInputValueAccessor extends ValueAccessor {
+  constructor(el: ElementRef) {
+    super(el);
+  }
+  registerOnChange(fn: (_: number | null) => void) {
+    super.registerOnChange(value => {
+      fn(value);
+    });
+  }
+}
+```
+
+Finally you need to add the new component and the value accessor in `src/component-library-module.ts`:
+
+```
+import { NgModule } from "@angular/core";
+import { defineCustomElements } from "component-library/loader";
+
+import { MyComponent, MyCustomInput } from "./directives/proxies";
+import { MyCustomInputValueAccessor } from "./directives/my-custom-input-value-accessor"
+
+defineCustomElements(window);
+
+const DECLARATIONS = [
+  // proxies
+  MyComponent,
+  MyCustomInput,
+
+  // value accessor
+  MyCustomInputValueAccessor
+];
+
+@NgModule({
+  declarations: DECLARATIONS,
+  exports: DECLARATIONS,
+  imports: [],
+  providers: []
+})
+export class ComponentLibraryModule {}
+
+```
+
+and finally build and pack:
+
+```
+npm run build
+npm pack
+```
+
+### Testing the angular binding
+
+Go in the angular project 
+
+```
+cd ..
+cd angular-test
+```
+
+And update the dependencies:
+
+```
+npm install ../component-library-angular/component-library-angular-0.0.1.tgz ../component-library/component-library-0.0.1.tgz
+```
+
+Modify the `src/app/app.module.ts` to add the `FormModule`:
+
+```
+import { BrowserModule } from '@angular/platform-browser';
+import { NgModule } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { ComponentLibraryModule } from 'component-library-angular';
+
+import { AppComponent } from './app.component';
+
+@NgModule({
+  declarations: [
+    AppComponent
+  ],
+  imports: [
+    BrowserModule,
+    FormsModule,
+    ComponentLibraryModule
+  ],
+  providers: [],
+  bootstrap: [AppComponent]
+})
+export class AppModule { }
+```
+
+Change `src/app/app.component.html`:
+
+```
+<my-component [first]="'From Angular'" [last]="'to Stencil'"></my-component>
+
+<my-custom-input (myChange)="customInputChanged($event)" [(ngModel)]="customInputValue"></my-custom-input>
+
+{{customInputValue}}
+```
+
+And `src/app/app.component.ts`
+
+```
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-root',
+  templateUrl: './app.component.html',
+  styleUrls: ['./app.component.css']
+})
+export class AppComponent {
+  title = 'angular-test';
+
+  customInputValue = 'initial value'
+
+  customInputChanged(event) {
+    console.log(event);
+  }
+}
+```
+
+
+## Note about custom components/angular binding
+
+You may notice something: the events must be custom ones, e.g. `change` become `myChange`. When building custom elements, always 
+thing about what should be exposed in term of events: blur? focus? change?
+
+For angular components, when you are creating "input" type of elements, you must implement manually a `ValueAccessor`. This may be tedious,
+but it only need to be done once.
