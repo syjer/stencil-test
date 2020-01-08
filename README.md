@@ -1,6 +1,8 @@
 # Creating a stencil library that can then be used by angular and react projects
 
-This is a step by step guide in 
+This is a step by step guide based from the source code of https://github.com/ionic-team/stencil-ds-plugins-demo.
+
+I hope it show a little bit more the underlying machinery/requirements.
 
 ## Create a component-library:
 
