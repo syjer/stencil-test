@@ -575,8 +575,8 @@ export class AppComponent {
 
 ## Note about custom components/angular binding
 
-You may notice something: the events must be custom ones, e.g. `change` become `myChange`. When building custom elements, always 
-thing about what should be exposed in term of events: blur? focus? change?
+You may notice something: the events must be custom ones, e.g. `change` becomes `myChange`. When building custom elements, always
+think about what should be exposed in term of events: blur? focus? change?
 
 For angular components, when you are creating "input" type of elements, you must implement manually a `ValueAccessor`. This may be tedious,
 but it only need to be done once.
